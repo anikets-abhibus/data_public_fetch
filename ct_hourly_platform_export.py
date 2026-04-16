@@ -17,7 +17,6 @@ CT_ACCOUNT_ID = os.environ.get("CT_ACCOUNT_ID")
 CT_PASSCODE = os.environ.get("CT_PASSCODE")
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK")
 GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID")
-GDRIVE_CREDENTIALS_JSON = os.environ.get("GDRIVE_CREDENTIALS_JSON")
 
 URL = "https://eu1.api.clevertap.com/1/counts/profiles.json"
 DATE_FROM = dt.date(2025, 3, 30)
@@ -30,8 +29,18 @@ MAX_RUNTIME_SECONDS = 5.5 * 3600
 START_TIME = time.time()
 # --------------------------------------
 
-if not all([CT_ACCOUNT_ID, CT_PASSCODE, SLACK_WEBHOOK, GDRIVE_FOLDER_ID, GDRIVE_CREDENTIALS_JSON]):
-    print("Missing required environment variables. Exiting.")
+missing = []
+if not CT_ACCOUNT_ID: missing.append("CT_ACCOUNT_ID")
+if not CT_PASSCODE: missing.append("CT_PASSCODE")
+if not SLACK_WEBHOOK: missing.append("SLACK_WEBHOOK")
+if not GDRIVE_FOLDER_ID: missing.append("GDRIVE_FOLDER_ID")
+
+if missing:
+    print(f"Missing required environment variables: {', '.join(missing)}. Exiting.")
+    sys.exit(1)
+
+if not os.path.exists("gdrive_creds.json"):
+    print("Missing gdrive_creds.json file. Exiting.")
     sys.exit(1)
 
 HEADERS = {
@@ -87,9 +96,8 @@ def slack_notify(text):
 
 
 def get_gdrive_service():
-    creds_dict = json.loads(GDRIVE_CREDENTIALS_JSON)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/drive.file"]
+    creds = service_account.Credentials.from_service_account_file(
+        "gdrive_creds.json", scopes=["https://www.googleapis.com/auth/drive.file"]
     )
     return build("drive", "v3", credentials=creds)
 
