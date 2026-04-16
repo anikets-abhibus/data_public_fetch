@@ -27,12 +27,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create Google Drive Credentials File
+        run: |
+          cat << 'EOF' > gdrive_creds.json
+          ${{ secrets.GDRIVE_CREDENTIALS_JSON }}
+          EOF
+
       - name: Run Export Script
         env:
           CT_ACCOUNT_ID: ${{ secrets.CT_ACCOUNT_ID }}
           CT_PASSCODE: ${{ secrets.CT_PASSCODE }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-          GDRIVE_CREDENTIALS_JSON: ${{ secrets.GDRIVE_CREDENTIALS_JSON }}
         run: |
           python ct_hourly_platform_export.py
