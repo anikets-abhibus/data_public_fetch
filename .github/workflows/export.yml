@@ -24,17 +24,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create Google Drive Credentials File
-        run: |
-          cat << 'EOF' > gdrive_creds.json
-          ${{ secrets.GDRIVE_CREDENTIALS_JSON }}
-          EOF
+      - name: Download Previous Artifact (if exists)
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: export.yml
+          name: ct_hourly_data_encrypted
+          path: /tmp/
+          search_artifacts: true
+          if_no_artifact_found: ignore
 
       - name: Run Export Script
         env:
           CT_ACCOUNT_ID: ${{ secrets.CT_ACCOUNT_ID }}
           CT_PASSCODE: ${{ secrets.CT_PASSCODE }}
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+          ZIP_PASSWORD: ${{ secrets.ZIP_PASSWORD }}
         run: |
           python ct_hourly_platform_export.py
+
+      - name: Upload Encrypted Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ct_hourly_data_encrypted
+          path: /tmp/ct_hourly_platform_1year.zip
+          retention-days: 90
