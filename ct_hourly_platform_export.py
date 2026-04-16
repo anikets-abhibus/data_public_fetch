@@ -6,23 +6,22 @@ import datetime as dt
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl import load_workbook, Workbook
-
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-import io
+import pyzipper
 
 # --------------- CONFIG ---------------
 CT_ACCOUNT_ID = os.environ.get("CT_ACCOUNT_ID")
 CT_PASSCODE = os.environ.get("CT_PASSCODE")
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK")
-GDRIVE_FOLDER_ID = os.environ.get("GDRIVE_FOLDER_ID")
+ZIP_PASSWORD = os.environ.get("ZIP_PASSWORD")
 
 URL = "https://eu1.api.clevertap.com/1/counts/profiles.json"
+# CHANGED FOR TESTING: Only 1 day of data
 DATE_FROM = dt.date(2025, 3, 30)
-DATE_TO = dt.date(2026, 3, 29)
+DATE_TO = dt.date(2025, 3, 30)
 OUTPUT_FILE = "ct_hourly_platform_1year.xlsx"
+ZIP_FILE = "ct_hourly_platform_1year.zip"
 LOCAL_PATH = f"/tmp/{OUTPUT_FILE}"
+ZIP_PATH = f"/tmp/{ZIP_FILE}"
 
 # GitHub Actions max runtime is 6 hours. We stop safely at 5.5 hours.
 MAX_RUNTIME_SECONDS = 5.5 * 3600
@@ -33,14 +32,10 @@ missing = []
 if not CT_ACCOUNT_ID: missing.append("CT_ACCOUNT_ID")
 if not CT_PASSCODE: missing.append("CT_PASSCODE")
 if not SLACK_WEBHOOK: missing.append("SLACK_WEBHOOK")
-if not GDRIVE_FOLDER_ID: missing.append("GDRIVE_FOLDER_ID")
+if not ZIP_PASSWORD: missing.append("ZIP_PASSWORD")
 
 if missing:
     print(f"Missing required environment variables: {', '.join(missing)}. Exiting.")
-    sys.exit(1)
-
-if not os.path.exists("gdrive_creds.json"):
-    print("Missing gdrive_creds.json file. Exiting.")
     sys.exit(1)
 
 HEADERS = {
@@ -95,49 +90,30 @@ def slack_notify(text):
         log(f"Slack notify failed: {e}")
 
 
-def get_gdrive_service():
-    creds = service_account.Credentials.from_service_account_file(
-        "gdrive_creds.json", scopes=["https://www.googleapis.com/auth/drive.file"]
-    )
-    return build("drive", "v3", credentials=creds)
-
-
-def download_from_gdrive(service):
-    results = service.files().list(
-        q=f"name='{OUTPUT_FILE}' and '{GDRIVE_FOLDER_ID}' in parents and trashed=false",
-        fields="files(id, name)"
-    ).execute()
-    items = results.get("files", [])
-    if not items:
-        log("No existing file found on Google Drive. Will create a new one.")
-        return None
-
-    file_id = items[0]["id"]
-    log(f"Found existing file on Drive (ID: {file_id}). Downloading...")
-    request = service.files().get_media(fileId=file_id)
-    fh = io.FileIO(LOCAL_PATH, "wb")
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-    log("Download complete.")
-    return file_id
-
-
-def upload_to_gdrive(service, file_id=None):
-    file_metadata = {
-        "name": OUTPUT_FILE,
-        "parents": [GDRIVE_FOLDER_ID]
-    }
-    media = MediaFileUpload(LOCAL_PATH, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    
-    if file_id:
-        log(f"Updating existing file on Drive (ID: {file_id})...")
-        service.files().update(fileId=file_id, media_body=media).execute()
+def extract_zip():
+    if os.path.exists(ZIP_PATH):
+        log(f"Found existing encrypted zip {ZIP_PATH}. Extracting...")
+        try:
+            with pyzipper.AESZipFile(ZIP_PATH) as zf:
+                zf.pwd = ZIP_PASSWORD.encode('utf-8')
+                zf.extractall(path="/tmp/")
+            log("Extraction successful.")
+        except Exception as e:
+            log(f"Failed to extract zip (password wrong or corrupt): {e}")
+            sys.exit(1)
     else:
-        log("Uploading new file to Drive...")
-        service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    log("Upload complete.")
+        log("No existing zip found. Starting fresh.")
+
+
+def create_encrypted_zip():
+    log(f"Creating encrypted zip {ZIP_PATH}...")
+    if os.path.exists(LOCAL_PATH):
+        with pyzipper.AESZipFile(ZIP_PATH, 'w', compression=pyzipper.ZIP_LZMA, encryption=pyzipper.WZ_AES) as zf:
+            zf.pwd = ZIP_PASSWORD.encode('utf-8')
+            zf.write(LOCAL_PATH, arcname=OUTPUT_FILE)
+        log("Encrypted zip created successfully.")
+    else:
+        log("No Excel file found to zip.")
 
 
 def post_with_retry(url, json_body=None, data=None):
@@ -317,9 +293,10 @@ def process_day(date_int, day_str):
 
 
 def main():
-    log("Initializing Google Drive service...")
-    gdrive_service = get_gdrive_service()
-    file_id = download_from_gdrive(gdrive_service)
+    log("Initializing...")
+    
+    # 1. Extract existing zip if it exists (downloaded by GitHub Actions step)
+    extract_zip()
 
     completed = load_completed_dates(LOCAL_PATH)
 
@@ -336,10 +313,11 @@ def main():
     if not remaining:
         log("All dates already processed. Exiting.")
         slack_notify("*CT Export COMPLETE!*\nAll 365 days exported.")
+        create_encrypted_zip() # Ensure zip is ready for final upload
         return
 
     log("=" * 60)
-    log("CleverTap Hourly Platform Export (GitHub Actions)")
+    log("CleverTap Hourly Platform Export (GitHub Artifacts - Encrypted)")
     log(f"Range: {DATE_FROM} to {DATE_TO} ({total} days)")
     log(f"Done: {skip} | Remaining: {len(remaining)}")
     log("=" * 60)
@@ -370,17 +348,8 @@ def main():
             rows = process_day(date_int, day_str)
             append_to_excel(LOCAL_PATH, rows)
             
-            # Upload to Drive after each day to ensure progress is saved
-            upload_to_gdrive(gdrive_service, file_id)
-            if not file_id:
-                # If we just created the file, we need to get its ID so subsequent uploads update it instead of creating duplicates
-                results = gdrive_service.files().list(
-                    q=f"name='{OUTPUT_FILE}' and '{GDRIVE_FOLDER_ID}' in parents and trashed=false",
-                    fields="files(id)"
-                ).execute()
-                items = results.get("files", [])
-                if items:
-                    file_id = items[0]["id"]
+            # Create encrypted zip after each day so if it crashes, the latest zip is ready for the upload step
+            create_encrypted_zip()
 
             days_processed_this_run += 1
             elapsed = time.time() - t0
@@ -420,6 +389,7 @@ def main():
         )
         log(f"ERROR: {e}")
         slack_notify(err_msg)
+        create_encrypted_zip() # Try to save what we have
         raise
 
 if __name__ == "__main__":
