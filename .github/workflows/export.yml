@@ -5,11 +5,6 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
-# THIS IS THE NEW PART: It prevents two runs from happening at the same time
-concurrency:
-  group: clevertap-export
-  cancel-in-progress: false
-
 jobs:
   export:
     runs-on: ubuntu-latest
