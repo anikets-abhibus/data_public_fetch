@@ -33,7 +33,7 @@ jobs:
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
           workflow: export.yml
-          name: ct_hourly_data_encrypted_6months
+          name: ct_hourly_data_encrypted_previous_6months
           path: /tmp/
           workflow_conclusion: ""
           search_artifacts: true
@@ -52,6 +52,6 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ct_hourly_data_encrypted_6months
-          path: /tmp/ct_hourly_platform_1year.zip
+          name: ct_hourly_data_encrypted_previous_6months
+          path: /tmp/ct_hourly_platform_previous_6months.zip
           retention-days: 90
