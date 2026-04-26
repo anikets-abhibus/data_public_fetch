@@ -17,7 +17,7 @@ ZIP_PASSWORD = os.environ.get("ZIP_PASSWORD")
 URL = "https://eu1.api.clevertap.com/1/counts/profiles.json"
 # CHANGED FOR PREVIOUS 6 MONTHS: (April 19, 2025 to October 15, 2025)
 DATE_FROM = dt.date(2025, 4, 19)
-DATE_TO = dt.date(2025, 10, 15)
+DATE_TO = dt.date.today() - dt.timedelta(days=1)
 OUTPUT_FILE = "ct_hourly_platform_previous_6months.xlsx"
 ZIP_FILE = "ct_hourly_platform_previous_6months.zip"
 LOCAL_PATH = f"/tmp/{OUTPUT_FILE}"
@@ -312,7 +312,7 @@ def main():
 
     if not remaining:
         log("All dates already processed. Exiting.")
-        slack_notify("*CT Export COMPLETE!*\nAll 180 days exported.")
+        slack_notify(f"*CT Export COMPLETE!*\nAll {total} days exported.")
         create_encrypted_zip() # Ensure zip is ready for final upload
         return
 
