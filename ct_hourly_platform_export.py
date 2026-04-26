@@ -16,7 +16,7 @@ ZIP_PASSWORD = os.environ.get("ZIP_PASSWORD")
 
 URL = "https://eu1.api.clevertap.com/1/counts/profiles.json"
 # CHANGED FOR PREVIOUS 6 MONTHS: (April 19, 2025 to October 15, 2025)
-DATE_FROM = dt.date(2025, 4, 19)
+DATE_FROM = dt.date(2026, 4, 20)
 DATE_TO = dt.date.today() - dt.timedelta(days=1)
 OUTPUT_FILE = "ct_hourly_platform_previous_6months.xlsx"
 ZIP_FILE = "ct_hourly_platform_previous_6months.zip"
